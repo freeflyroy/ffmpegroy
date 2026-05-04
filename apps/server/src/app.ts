@@ -6,7 +6,7 @@ import { env } from '~/config/env';
 import { logger } from '~/config/logger';
 import { registerApiRoutes } from '~/components/api/controller';
 import { registerAudioRoutes } from '~/components/audio/controller';
-import { registerVideoRoutes } from '~/components/video/controller';
+import { registerVideoRoutes, registerVideoCutConcatRoutes } from '~/components/video/controller';
 import { registerImageRoutes } from '~/components/image/controller';
 import { registerMediaRoutes } from '~/components/media/controller';
 
@@ -84,6 +84,7 @@ export function createApp() {
 
   registerAudioRoutes(app);
   registerVideoRoutes(app);
+  registerVideoCutConcatRoutes(app);
   registerImageRoutes(app);
   registerMediaRoutes(app);
 
