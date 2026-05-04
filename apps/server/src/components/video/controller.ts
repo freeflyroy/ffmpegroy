@@ -12,6 +12,12 @@ import { videoToGifRoute, videoToGifUrlRoute } from './gif-schemas';
 import { JobType } from '~/queue';
 import { env } from '~/config/env';
 import { processMediaJob, getOutputFilename } from '~/utils/job-handler';
+import { videoCutRoute, videoCutUrlRoute } from './cut-schemas';
+import { videoConcatRoute, videoConcatUrlRoute } from './concat-schemas';
+import { randomUUID } from 'crypto';
+import { mkdir, writeFile, readFile, rm } from 'fs/promises';
+import path from 'path';
+import { addJob, queueEvents, validateJobResult } from '~/queue';
 
 export function registerVideoRoutes(app: OpenAPIHono) {
   app.openapi(videoToMp4Route, async (c) => {
@@ -342,15 +348,6 @@ export function registerVideoRoutes(app: OpenAPIHono) {
     }
   });
 }
-
-// --- Cut/Concat routes (added for video repurposing pipeline) ---
-
-import { videoCutRoute, videoCutUrlRoute } from './cut-schemas';
-import { videoConcatRoute, videoConcatUrlRoute } from './concat-schemas';
-import { randomUUID } from 'crypto';
-import { mkdir, writeFile, readFile, rm } from 'fs/promises';
-import path from 'path';
-import { addJob, queueEvents, validateJobResult } from '~/queue';
 
 export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
   app.openapi(videoCutRoute, async (c) => {
