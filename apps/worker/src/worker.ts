@@ -11,6 +11,8 @@ import { processVideoToMp4, processVideoExtractAudio, processVideoExtractFrames 
 import { processVideoToGif } from '@worker/queue/video/gif-processor';
 import { processImageToJpg, processImageResize } from '@worker/queue/image/processor';
 import { processMediaProbe } from '@worker/queue/media/processor';
+import { processVideoCut } from '@worker/queue/video/cut-processor';
+import { processVideoConcat } from '@worker/queue/video/concat-processor';
 
 await checkRedisHealth();
 
@@ -36,6 +38,10 @@ const worker = new Worker<unknown, JobResult>(
         return processImageToJpg(job as never);
       case JobType.IMAGE_RESIZE:
         return processImageResize(job as never);
+      case JobType.VIDEO_CUT:
+        return processVideoCut(job as never);
+      case JobType.VIDEO_CONCAT:
+        return processVideoConcat(job as never);
       case JobType.MEDIA_PROBE:
         return processMediaProbe(job as never);
       default:
