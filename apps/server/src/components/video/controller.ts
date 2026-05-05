@@ -565,4 +565,142 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
       return c.json({ error: 'Processing failed', message: msg }, 500);
     }
   });
+
+  // --- Raw binary body endpoints ---
+  // Workaround for n8n HTTP Request node v4.x multipart/form-data bug.
+  // Accept application/octet-stream body instead of multipart file field.
+
+  app.post('/video/cut/binary', async (c) => {
+    try {
+      const start = c.req.query('start');
+      const end = c.req.query('end');
+      const precise = c.req.query('precise') ?? 'no';
+
+      if (!start || !end) return c.json({ error: 'start and end query parameters are required' }, 400);
+
+      const body = await c.req.arrayBuffer();
+      if (!body || body.byteLength === 0) return c.json({ error: 'Request body is empty' }, 400);
+
+      const file = new File([body], 'input.mp4', { type: 'video/mp4' });
+
+      const result = await processMediaJob({
+        file,
+        jobType: JobType.VIDEO_CUT,
+        outputExtension: 'mp4',
+        jobData: ({ inputPath, outputPath }) => ({
+          inputPath,
+          outputPath,
+          startTime: start,
+          endTime: end,
+          precise: precise === 'yes'
+        })
+      });
+
+      if (!result.success) return c.json({ error: result.error }, 400);
+      if (!result.outputBuffer) return c.json({ error: 'Cut failed' }, 400);
+
+      return c.body(new Uint8Array(result.outputBuffer), 200, {
+        'Content-Type': 'video/mp4',
+        'Content-Disposition': 'attachment; filename="output.mp4"'
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Processing failed', message: msg }, 500);
+    }
+  });
+
+  app.post('/video/concat/binary', async (c) => {
+    try {
+      const reencode = c.req.query('reencode') ?? 'no';
+
+      const body = await c.req.arrayBuffer();
+      if (!body || body.byteLength === 0) return c.json({ error: 'Request body is empty' }, 400);
+
+      const file = new File([body], 'input.mp4', { type: 'video/mp4' });
+      const inputBuffer = Buffer.from(await file.arrayBuffer());
+
+      const jobId = randomUUID();
+      const jobDir = path.join(env.TEMP_DIR, jobId);
+      await mkdir(jobDir, { recursive: true });
+
+      const inputPath = path.join(jobDir, 'input_0.mp4');
+      await writeFile(inputPath, inputBuffer);
+
+      const outputPath = path.join(jobDir, 'output.mp4');
+      const job = await addJob(JobType.VIDEO_CONCAT, {
+        inputPaths: [inputPath],
+        outputPath,
+        reencode: reencode === 'yes'
+      });
+
+      const rawResult = await job.waitUntilFinished(queueEvents);
+      const result = validateJobResult(rawResult);
+
+      if (!result.success) {
+        await rm(jobDir, { recursive: true, force: true });
+        return c.json({ error: result.error }, 400);
+      }
+
+      if (!result.outputPath) {
+        await rm(jobDir, { recursive: true, force: true });
+        return c.json({ error: 'Concat failed' }, 400);
+      }
+
+      const outputBuffer = await readFile(result.outputPath);
+      await rm(jobDir, { recursive: true, force: true });
+
+      return c.body(new Uint8Array(outputBuffer), 200, {
+        'Content-Type': 'video/mp4',
+        'Content-Disposition': 'attachment; filename="concat_output.mp4"'
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Processing failed', message: msg }, 500);
+    }
+  });
+
+  app.post('/video/crop/binary', async (c) => {
+    try {
+      const w = c.req.query('w');
+      const h = c.req.query('h');
+      const x = c.req.query('x');
+      const y = c.req.query('y');
+      const sw = c.req.query('sw');
+      const sh = c.req.query('sh');
+
+      if (!w || !h) return c.json({ error: 'w and h query parameters are required' }, 400);
+
+      const body = await c.req.arrayBuffer();
+      if (!body || body.byteLength === 0) return c.json({ error: 'Request body is empty' }, 400);
+
+      const file = new File([body], 'input.mp4', { type: 'video/mp4' });
+
+      const result = await processMediaJob({
+        file,
+        jobType: JobType.VIDEO_CROP,
+        outputExtension: 'mp4',
+        jobData: ({ inputPath, outputPath }) => ({
+          inputPath,
+          outputPath,
+          w,
+          h,
+          x: x ?? undefined,
+          y: y ?? undefined,
+          sw: sw ?? undefined,
+          sh: sh ?? undefined
+        })
+      });
+
+      if (!result.success) return c.json({ error: result.error }, 400);
+      if (!result.outputBuffer) return c.json({ error: 'Crop failed' }, 400);
+
+      return c.body(new Uint8Array(result.outputBuffer), 200, {
+        'Content-Type': 'video/mp4',
+        'Content-Disposition': 'attachment; filename="output.mp4"'
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Processing failed', message: msg }, 500);
+    }
+  });
 }
