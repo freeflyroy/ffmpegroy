@@ -14,6 +14,7 @@ import { processMediaProbe } from '@worker/queue/media/processor';
 import { processVideoCut } from '@worker/queue/video/cut-processor';
 import { processVideoConcat } from '@worker/queue/video/concat-processor';
 import { processVideoCrop } from '@worker/queue/video/crop-processor';
+import { processVideoAssemble } from '@worker/queue/video/assemble-processor';
 
 await checkRedisHealth();
 
@@ -47,6 +48,8 @@ const worker = new Worker<unknown, JobResult>(
         return processVideoCrop(job as never);
       case JobType.MEDIA_PROBE:
         return processMediaProbe(job as never);
+      case JobType.VIDEO_ASSEMBLE:
+        return processVideoAssemble(job as never);
       default:
         throw new Error(`Unknown job type: ${job.name}`);
     }

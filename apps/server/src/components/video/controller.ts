@@ -566,9 +566,130 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
     }
   });
 
+  // --- Assemble endpoint: one API call does cut + concat + crop ---
+
+  app.post('/job/assemble/init', async (c) => {
+    try {
+      const body = await c.req.json();
+
+      if (!body.segments || !Array.isArray(body.segments)) {
+        return c.json({ error: 'segments array is required' }, 400);
+      }
+
+      const keepSegments = body.segments
+        .filter((s: { type: string }) => s.type === 'keep')
+        .map((s: { start: number; end: number }) => ({
+          start: String(s.start),
+          end: String(s.end)
+        }));
+
+      if (keepSegments.length === 0) {
+        return c.json({ error: 'No keep segments found in cut sheet' }, 400);
+      }
+
+      // Apply 0.5s outward buffer, clamp to video bounds, prevent overlap
+      const totalDuration = body.totalDuration ?? 9999;
+      const BUFFER = 0.5;
+
+      for (let i = 0; i < keepSegments.length; i++) {
+        let start = parseFloat(keepSegments[i].start) - BUFFER;
+        let end = parseFloat(keepSegments[i].end) + BUFFER;
+
+        start = Math.max(0, start);
+        end = Math.min(totalDuration, end);
+
+        if (i > 0) {
+          const prevEnd = parseFloat(keepSegments[i - 1].end);
+          if (start < prevEnd) start = prevEnd;
+        }
+
+        if (i < keepSegments.length - 1) {
+          const nextStart = parseFloat(keepSegments[i + 1].start);
+          if (end > nextStart) end = nextStart;
+        }
+
+        keepSegments[i].start = String(start);
+        keepSegments[i].end = String(end);
+      }
+
+      const jobId = randomUUID();
+      const jobDir = path.join(env.TEMP_DIR, `assemble_${jobId}`);
+      await mkdir(jobDir, { recursive: true });
+
+      const config = {
+        segments: keepSegments,
+        crop: body.crop || null
+      };
+
+      await writeFile(path.join(jobDir, 'config.json'), JSON.stringify(config));
+
+      return c.json({ jobId, segmentCount: keepSegments.length }, 200);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Init failed', message: msg }, 500);
+    }
+  });
+
+  app.post('/job/assemble/start', async (c) => {
+    try {
+      const jobId = c.req.query('jobId');
+      if (!jobId) return c.json({ error: 'jobId query parameter is required' }, 400);
+
+      const jobDir = path.join(env.TEMP_DIR, `assemble_${jobId}`);
+      const configPath = path.join(jobDir, 'config.json');
+
+      const { existsSync } = await import('fs');
+      if (!existsSync(configPath)) return c.json({ error: 'Invalid or expired jobId' }, 400);
+
+      const body = await c.req.arrayBuffer();
+      if (!body || body.byteLength === 0) {
+        await rm(jobDir, { recursive: true, force: true });
+        return c.json({ error: 'Request body is empty' }, 400);
+      }
+
+      const inputPath = path.join(jobDir, 'input.mp4');
+      await writeFile(inputPath, Buffer.from(body));
+
+      const configRaw = await readFile(configPath, 'utf-8');
+      const config = JSON.parse(configRaw);
+
+      const outputPath = path.join(jobDir, 'output.mp4');
+      const job = await addJob(JobType.VIDEO_ASSEMBLE, {
+        inputPath,
+        outputPath,
+        segments: config.segments,
+        crop: config.crop || undefined
+      });
+
+      const rawResult = await job.waitUntilFinished(queueEvents);
+      const result = validateJobResult(rawResult);
+
+      if (!result.success) {
+        await rm(jobDir, { recursive: true, force: true });
+        return c.json({ error: result.error, metadata: result.metadata }, 400);
+      }
+
+      if (!result.outputPath) {
+        await rm(jobDir, { recursive: true, force: true });
+        return c.json({ error: 'Assembly failed - no output' }, 400);
+      }
+
+      const outputBuffer = await readFile(result.outputPath);
+      const metadata = result.metadata;
+      await rm(jobDir, { recursive: true, force: true });
+
+      return c.body(new Uint8Array(outputBuffer), 200, {
+        'Content-Type': 'video/mp4',
+        'Content-Disposition': 'attachment; filename="assembled.mp4"',
+        'X-Assembly-Metadata': JSON.stringify(metadata || {})
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Assembly failed', message: msg }, 500);
+    }
+  });
+
   // --- Raw binary body endpoints ---
-  // Workaround for n8n HTTP Request node v4.x multipart/form-data bug.
-  // Accept application/octet-stream body instead of multipart file field.
 
   app.post('/video/cut/binary', async (c) => {
     try {
