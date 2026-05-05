@@ -39,4 +39,33 @@ export function registerMediaRoutes(app: OpenAPIHono) {
       return c.json({ error: 'Processing failed', message: errorMessage }, 500);
     }
   });
+
+  app.post('/media/info/binary', async (c) => {
+    try {
+      const body = await c.req.arrayBuffer();
+      if (!body || body.byteLength === 0) return c.json({ error: 'Request body is empty' }, 400);
+
+      const jobId = randomUUID();
+      const jobDir = path.join(env.TEMP_DIR, jobId);
+      await mkdir(jobDir, { recursive: true });
+
+      const inputPath = path.join(jobDir, 'input');
+      await writeFile(inputPath, Buffer.from(body));
+
+      const job = await addJob(JobType.MEDIA_PROBE, { inputPath });
+      const rawResult = await job.waitUntilFinished(queueEvents);
+      const result = validateJobResult(rawResult);
+
+      await rm(jobDir, { recursive: true, force: true });
+
+      if (!result.success || !result.metadata) {
+        return c.json({ error: result.error || 'Probe failed' }, 400);
+      }
+
+      return c.json(result.metadata as never, 200);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Processing failed', message: errorMessage }, 500);
+    }
+  });
 }
