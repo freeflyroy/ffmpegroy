@@ -609,26 +609,50 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
     }
   });
 
-  app.post('/video/concat/binary', async (c) => {
+  // Two-step sequential concat: init stores file1, finish concats with file2.
+  // Each request sends a single file as raw binary body.
+  app.post('/video/concat/binary/init', async (c) => {
     try {
-      const reencode = c.req.query('reencode') ?? 'no';
-
       const body = await c.req.arrayBuffer();
       if (!body || body.byteLength === 0) return c.json({ error: 'Request body is empty' }, 400);
 
-      const file = new File([body], 'input.mp4', { type: 'video/mp4' });
-      const inputBuffer = Buffer.from(await file.arrayBuffer());
+      const tempId = randomUUID();
+      const tempDir = path.join(env.TEMP_DIR, `concat_${tempId}`);
+      await mkdir(tempDir, { recursive: true });
+      await writeFile(path.join(tempDir, 'input_0.mp4'), Buffer.from(body));
 
-      const jobId = randomUUID();
-      const jobDir = path.join(env.TEMP_DIR, jobId);
-      await mkdir(jobDir, { recursive: true });
+      return c.json({ tempId }, 200);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Processing failed', message: msg }, 500);
+    }
+  });
 
-      const inputPath = path.join(jobDir, 'input_0.mp4');
-      await writeFile(inputPath, inputBuffer);
+  app.post('/video/concat/binary/finish', async (c) => {
+    try {
+      const tempId = c.req.query('tempId');
+      const reencode = c.req.query('reencode') ?? 'no';
 
-      const outputPath = path.join(jobDir, 'output.mp4');
+      if (!tempId) return c.json({ error: 'tempId query parameter is required' }, 400);
+
+      const tempDir = path.join(env.TEMP_DIR, `concat_${tempId}`);
+      const firstFilePath = path.join(tempDir, 'input_0.mp4');
+
+      const { existsSync } = await import('fs');
+      if (!existsSync(firstFilePath)) return c.json({ error: 'Invalid or expired tempId' }, 400);
+
+      const body = await c.req.arrayBuffer();
+      if (!body || body.byteLength === 0) {
+        await rm(tempDir, { recursive: true, force: true });
+        return c.json({ error: 'Request body is empty' }, 400);
+      }
+
+      const secondFilePath = path.join(tempDir, 'input_1.mp4');
+      await writeFile(secondFilePath, Buffer.from(body));
+
+      const outputPath = path.join(tempDir, 'output.mp4');
       const job = await addJob(JobType.VIDEO_CONCAT, {
-        inputPaths: [inputPath],
+        inputPaths: [firstFilePath, secondFilePath],
         outputPath,
         reencode: reencode === 'yes'
       });
@@ -637,17 +661,17 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
       const result = validateJobResult(rawResult);
 
       if (!result.success) {
-        await rm(jobDir, { recursive: true, force: true });
+        await rm(tempDir, { recursive: true, force: true });
         return c.json({ error: result.error }, 400);
       }
 
       if (!result.outputPath) {
-        await rm(jobDir, { recursive: true, force: true });
+        await rm(tempDir, { recursive: true, force: true });
         return c.json({ error: 'Concat failed' }, 400);
       }
 
       const outputBuffer = await readFile(result.outputPath);
-      await rm(jobDir, { recursive: true, force: true });
+      await rm(tempDir, { recursive: true, force: true });
 
       return c.body(new Uint8Array(outputBuffer), 200, {
         'Content-Type': 'video/mp4',
