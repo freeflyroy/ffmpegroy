@@ -14,6 +14,7 @@ import { env } from '~/config/env';
 import { processMediaJob, getOutputFilename } from '~/utils/job-handler';
 import { videoCutRoute, videoCutUrlRoute } from './cut-schemas';
 import { videoConcatRoute, videoConcatUrlRoute } from './concat-schemas';
+import { videoCropRoute, videoCropUrlRoute } from './crop-schemas';
 import { randomUUID } from 'crypto';
 import { mkdir, writeFile, readFile, rm } from 'fs/promises';
 import path from 'path';
@@ -492,6 +493,72 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
 
       if (!result.success) return c.json({ error: result.error }, 400);
       if (!result.outputUrl) return c.json({ error: 'Concat failed' }, 400);
+      return c.json({ url: result.outputUrl }, 200);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Processing failed', message: msg }, 500);
+    }
+  });
+
+  app.openapi(videoCropRoute, async (c) => {
+    try {
+      const { file } = c.req.valid('form');
+      const query = c.req.valid('query');
+
+      const result = await processMediaJob({
+        file,
+        jobType: JobType.VIDEO_CROP,
+        outputExtension: 'mp4',
+        jobData: ({ inputPath, outputPath }) => ({
+          inputPath,
+          outputPath,
+          w: query.w,
+          h: query.h,
+          x: query.x,
+          y: query.y,
+          sw: query.sw,
+          sh: query.sh
+        })
+      });
+
+      if (!result.success) return c.json({ error: result.error }, 400);
+      if (!result.outputBuffer) return c.json({ error: 'Crop failed' }, 400);
+
+      return c.body(new Uint8Array(result.outputBuffer), 200, {
+        'Content-Type': 'video/mp4',
+        'Content-Disposition': `attachment; filename="${getOutputFilename(file.name, 'mp4')}"`
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'Processing failed', message: msg }, 500);
+    }
+  });
+
+  app.openapi(videoCropUrlRoute, async (c) => {
+    try {
+      if (env.STORAGE_MODE !== 's3') return c.json({ error: 'S3 mode not enabled' }, 400);
+      const { file } = c.req.valid('form');
+      const query = c.req.valid('query');
+
+      const result = await processMediaJob({
+        file,
+        jobType: JobType.VIDEO_CROP,
+        outputExtension: 'mp4',
+        jobData: ({ inputPath, outputPath }) => ({
+          inputPath,
+          outputPath,
+          w: query.w,
+          h: query.h,
+          x: query.x,
+          y: query.y,
+          sw: query.sw,
+          sh: query.sh,
+          uploadToS3: true
+        })
+      });
+
+      if (!result.success) return c.json({ error: result.error }, 400);
+      if (!result.outputUrl) return c.json({ error: 'Crop failed' }, 400);
       return c.json({ url: result.outputUrl }, 200);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);

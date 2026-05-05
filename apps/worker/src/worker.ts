@@ -13,6 +13,7 @@ import { processImageToJpg, processImageResize } from '@worker/queue/image/proce
 import { processMediaProbe } from '@worker/queue/media/processor';
 import { processVideoCut } from '@worker/queue/video/cut-processor';
 import { processVideoConcat } from '@worker/queue/video/concat-processor';
+import { processVideoCrop } from '@worker/queue/video/crop-processor';
 
 await checkRedisHealth();
 
@@ -42,6 +43,8 @@ const worker = new Worker<unknown, JobResult>(
         return processVideoCut(job as never);
       case JobType.VIDEO_CONCAT:
         return processVideoConcat(job as never);
+      case JobType.VIDEO_CROP:
+        return processVideoCrop(job as never);
       case JobType.MEDIA_PROBE:
         return processMediaProbe(job as never);
       default:

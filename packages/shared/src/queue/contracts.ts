@@ -11,7 +11,8 @@ export const JobType = {
   IMAGE_RESIZE: 'image:resize',
   MEDIA_PROBE: 'media:info',
   VIDEO_CUT: 'video:cut',
-  VIDEO_CONCAT: 'video:concat'
+  VIDEO_CONCAT: 'video:concat',
+  VIDEO_CROP: 'video:crop'
 } as const;
 
 export type JobTypeName = (typeof JobType)[keyof typeof JobType];
