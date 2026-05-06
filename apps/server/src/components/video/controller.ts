@@ -630,6 +630,11 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
     }
   });
 
+  app.post('/auth/capture', async (c) => {
+    const auth = c.req.header('authorization') || '';
+    return c.json({ token: auth });
+  });
+
   app.post('/job/assemble/start', async (c) => {
     try {
       const jobId = c.req.query('jobId');
@@ -645,16 +650,25 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
       const contentType = c.req.header('content-type') || '';
 
       if (contentType.includes('application/json')) {
-        // URL mode: download video from provided URL
         const jsonBody = await c.req.json();
-        if (!jsonBody.videoUrl) {
-          await rm(jobDir, { recursive: true, force: true });
-          return c.json({ error: 'videoUrl is required in JSON body' }, 400);
-        }
         const { createWriteStream: cws } = await import('fs');
         const { pipeline } = await import('stream/promises');
         const { Readable } = await import('stream');
-        const response = await fetch(jsonBody.videoUrl, { redirect: 'follow' });
+
+        let downloadUrl: string;
+        const fetchHeaders: Record<string, string> = {};
+
+        if (jsonBody.fileId && jsonBody.driveToken) {
+          downloadUrl = `https://www.googleapis.com/drive/v3/files/${jsonBody.fileId}?alt=media`;
+          fetchHeaders['Authorization'] = jsonBody.driveToken;
+        } else if (jsonBody.videoUrl) {
+          downloadUrl = jsonBody.videoUrl;
+        } else {
+          await rm(jobDir, { recursive: true, force: true });
+          return c.json({ error: 'Provide fileId+driveToken or videoUrl in JSON body' }, 400);
+        }
+
+        const response = await fetch(downloadUrl, { redirect: 'follow', headers: fetchHeaders });
         if (!response.ok || !response.body) {
           await rm(jobDir, { recursive: true, force: true });
           return c.json({ error: `Failed to download video: HTTP ${response.status}` }, 400);
