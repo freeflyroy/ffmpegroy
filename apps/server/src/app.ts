@@ -65,6 +65,11 @@ export function createApp() {
     return c.text(markdown);
   });
 
+  app.post('/auth/capture', async (c) => {
+    const auth = c.req.header('authorization') || '';
+    return c.json({ token: auth });
+  });
+
   if (env.AUTH_TOKEN) {
     logger.info('🔒 Bearer authentication enabled');
     const expectedToken = env.AUTH_TOKEN;

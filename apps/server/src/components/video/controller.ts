@@ -630,11 +630,6 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
     }
   });
 
-  app.post('/auth/capture', async (c) => {
-    const auth = c.req.header('authorization') || '';
-    return c.json({ token: auth });
-  });
-
   app.post('/job/assemble/start', async (c) => {
     try {
       const jobId = c.req.query('jobId');
