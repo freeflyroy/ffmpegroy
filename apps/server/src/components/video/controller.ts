@@ -641,14 +641,35 @@ export function registerVideoCutConcatRoutes(app: OpenAPIHono) {
       const { existsSync } = await import('fs');
       if (!existsSync(configPath)) return c.json({ error: 'Invalid or expired jobId' }, 400);
 
-      const body = await c.req.arrayBuffer();
-      if (!body || body.byteLength === 0) {
-        await rm(jobDir, { recursive: true, force: true });
-        return c.json({ error: 'Request body is empty' }, 400);
-      }
-
       const inputPath = path.join(jobDir, 'input.mp4');
-      await writeFile(inputPath, Buffer.from(body));
+      const contentType = c.req.header('content-type') || '';
+
+      if (contentType.includes('application/json')) {
+        // URL mode: download video from provided URL
+        const jsonBody = await c.req.json();
+        if (!jsonBody.videoUrl) {
+          await rm(jobDir, { recursive: true, force: true });
+          return c.json({ error: 'videoUrl is required in JSON body' }, 400);
+        }
+        const { createWriteStream: cws } = await import('fs');
+        const { pipeline } = await import('stream/promises');
+        const { Readable } = await import('stream');
+        const response = await fetch(jsonBody.videoUrl, { redirect: 'follow' });
+        if (!response.ok || !response.body) {
+          await rm(jobDir, { recursive: true, force: true });
+          return c.json({ error: `Failed to download video: HTTP ${response.status}` }, 400);
+        }
+        const fileStream = cws(inputPath);
+        await pipeline(Readable.fromWeb(response.body as never), fileStream);
+      } else {
+        // Binary mode: read video from request body (original behavior)
+        const body = await c.req.arrayBuffer();
+        if (!body || body.byteLength === 0) {
+          await rm(jobDir, { recursive: true, force: true });
+          return c.json({ error: 'Request body is empty' }, 400);
+        }
+        await writeFile(inputPath, Buffer.from(body));
+      }
 
       const configRaw = await readFile(configPath, 'utf-8');
       const config = JSON.parse(configRaw);
