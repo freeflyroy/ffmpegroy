@@ -33,11 +33,6 @@ export async function processVideoAssemble(job: Job<VideoAssembleJobData>): Prom
       const seg = segments[i];
       const segPath = path.join(workDir, `seg_${String(i).padStart(3, '0')}.mp4`);
 
-      const segDuration = parseFloat(String(seg.end)) - parseFloat(String(seg.start));
-      const fadeMs = 0.04;
-      const fadeOutStart = Math.max(0, segDuration - fadeMs);
-      const audioFilter = `afade=t=in:d=${fadeMs},afade=t=out:st=${fadeOutStart}:d=${fadeMs}`;
-
       const args = [
         '-i',
         inputPath,
@@ -51,8 +46,6 @@ export async function processVideoAssemble(job: Job<VideoAssembleJobData>): Prom
         'fast',
         '-crf',
         '18',
-        '-af',
-        audioFilter,
         '-codec:a',
         'aac',
         '-b:a',
